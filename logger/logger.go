@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -20,23 +21,27 @@ var capacity int = 10
 var timeThreshold time.Duration = 5 * time.Second
 
 type Logger struct {
-	buffer       chan string
-	flushLock    sync.Mutex
-	timerLock    sync.Mutex
-	timerRunning bool
-	writer       io.Writer
+	buffer    chan string
+	writer    io.Writer
+	flushLock sync.Mutex
+
+	timerChan chan struct{}
 }
 
 func NewLogger(writer io.Writer) (l *Logger) {
 	logger := &Logger{
-		buffer: make(chan string, capacity),
-		writer: writer,
+		buffer:    make(chan string, capacity),
+		timerChan: make(chan struct{}, 1),
+		writer:    writer,
 	}
 	return logger
 }
 
 func (l *Logger) Log(msg string) {
-	l.flushIn(timeThreshold)
+	ctx, cancel := context.WithTimeout(context.Background(), timeThreshold)
+	defer cancel()
+	l.flushIn(ctx)
+
 	select {
 	case l.buffer <- msg:
 	default:
@@ -58,20 +63,18 @@ func (l *Logger) Flush() {
 	}
 }
 
-func (l *Logger) flushIn(t time.Duration) {
+func (l *Logger) flushIn(ctx context.Context) {
+	select {
+	case l.timerChan <- struct{}{}:
+	default:
+		return
+	}
 	go func() {
-		l.timerLock.Lock()
-		defer l.timerLock.Unlock()
-		if l.timerRunning {
-			return
+		<-ctx.Done()
+		l.Flush()
+		select {
+		case _ = <-l.timerChan:
+		default:
 		}
-		l.timerRunning = true
-		go func() {
-			time.Sleep(t)
-			l.Flush()
-			l.timerLock.Lock()
-			defer l.timerLock.Unlock()
-			l.timerRunning = false
-		}()
 	}()
 }

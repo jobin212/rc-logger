@@ -3,13 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/jobin212/rc-logger/logger"
 )
-
-var capacity int = 10
-var timeThreshold time.Duration = 5 * time.Second
 
 func main() {
 	logger := logger.NewLogger(os.Stdout)
